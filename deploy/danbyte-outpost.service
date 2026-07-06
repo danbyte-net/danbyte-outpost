@@ -1,0 +1,19 @@
+# Danbyte Outpost — systemd unit (HTTPS pull transport).
+# The Danbyte-generated installer writes this for you; included here for
+# reference / manual installs. Adjust ExecStart's path to your venv.
+[Unit]
+Description=Danbyte Outpost
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Prefer an EnvironmentFile so the token isn't in the unit:
+#   /etc/danbyte-outpost.env  ->  OUTPOST_URL=https://danbyte  OUTPOST_TOKEN=…
+EnvironmentFile=-/etc/danbyte-outpost.env
+ExecStart=/opt/danbyte-outpost/venv/bin/danbyte-outpost run
+Restart=always
+RestartSec=10
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target
