@@ -47,3 +47,18 @@ class OutpostClient:
         r = await self._http.post(self.cfg.results_url, json={"results": results})
         r.raise_for_status()
         return r.json().get("ingested", 0)
+
+    async def fetch_snmp_work(self) -> dict:
+        """SNMP discovery targets + creds for this Outpost → {devices, interval_seconds}."""
+        r = await self._http.get(self.cfg.snmp_work_url)
+        r.raise_for_status()
+        return r.json()
+
+    async def post_snmp_results(self, results: list[dict]) -> int:
+        if not results:
+            return 0
+        r = await self._http.post(
+            self.cfg.snmp_results_url, json={"results": results}
+        )
+        r.raise_for_status()
+        return r.json().get("ingested", 0)

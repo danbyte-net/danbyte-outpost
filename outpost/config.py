@@ -31,6 +31,14 @@ class Config:
     def hello_url(self) -> str:
         return f"{self.base}/api/outpost/hello/"
 
+    @property
+    def snmp_work_url(self) -> str:
+        return f"{self.base}/api/outpost/snmp-work/"
+
+    @property
+    def snmp_results_url(self) -> str:
+        return f"{self.base}/api/outpost/snmp/"
+
 
 class ConfigError(RuntimeError):
     pass

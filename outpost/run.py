@@ -104,13 +104,33 @@ async def _check(cfg: Config) -> int:
         await client.aclose()
 
 
+async def _snmp_cycle(client, interval: int) -> int:
+    """Pull SNMP discovery targets, fetch each locally, post results back.
+    Returns the (possibly updated) interval. Isolated so it can't stall checks."""
+    from .snmp import discover_device
+
+    work = await client.fetch_snmp_work()
+    devices = work.get("devices", [])
+    interval = int(work.get("interval_seconds", interval)) or interval
+    if devices:
+        results = await asyncio.gather(*(discover_device(d) for d in devices))
+        n = await client.post_snmp_results(list(results))
+        print(f"outpost: snmp polled {len(devices)}, reported {n}")
+    return interval
+
+
 async def _loop(cfg: Config) -> None:
-    """Poll loop: hello, then repeatedly pull work → run checks → post results."""
+    """Poll loop: hello, then repeatedly pull work → run checks → post results.
+    SNMP discovery runs on its own (slower) cadence alongside the checks."""
+    import time
+
     from .checks import run_check
     from .client import OutpostClient
 
     client = OutpostClient(cfg)
     poll = cfg.poll_seconds
+    snmp_interval = 900
+    next_snmp = 0.0  # run one discovery pass right after startup
     try:
         try:
             info = await client.hello()
@@ -132,6 +152,14 @@ async def _loop(cfg: Config) -> None:
                 print(f"outpost: poll error ({e})", file=sys.stderr)
                 await asyncio.sleep(min(poll * 2, 60))
                 continue
+
+            if time.monotonic() >= next_snmp:
+                try:
+                    snmp_interval = await _snmp_cycle(client, snmp_interval)
+                except Exception as e:  # SNMP trouble never blocks checks
+                    print(f"outpost: snmp error ({e})", file=sys.stderr)
+                next_snmp = time.monotonic() + snmp_interval
+
             await asyncio.sleep(poll)
     finally:
         await client.aclose()

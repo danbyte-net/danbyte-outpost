@@ -12,7 +12,9 @@ network and reports results back to Danbyte. The core never has to reach in.
   Danbyte dials *in* over SSH and drives the agent (`danbyte-outpost once`).
 
 It ships the **same check engine the core runs** (`danbyte_checks`), so a check
-gives identical results wherever it runs — no drift.
+gives identical results wherever it runs — no drift. The `run` loop also performs
+**SNMP discovery** (facts / interfaces / LLDP topology / ARP) for the site's
+devices on a slower cadence, fetching locally and posting results back.
 
 ## Install
 
