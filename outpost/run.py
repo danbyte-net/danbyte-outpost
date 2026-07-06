@@ -160,13 +160,17 @@ async def _loop(cfg: Config) -> None:
 
         while True:
             try:
-                checks = await client.fetch_work()
+                work = await client.fetch_work()
+                checks = work.get("checks", [])
                 if checks:
                     results = await asyncio.gather(
                         *(run_check(c) for c in checks)
                     )
                     n = await client.post_results(list(results))
                     print(f"outpost: ran {len(checks)}, reported {n}")
+                # A "Discover now" click → sweep on this cycle, not in 10 min.
+                if work.get("sweep_pending"):
+                    next_sweep = 0.0
             except Exception as e:  # transient — back off and retry
                 print(f"outpost: poll error ({e})", file=sys.stderr)
                 await asyncio.sleep(min(poll * 2, 60))

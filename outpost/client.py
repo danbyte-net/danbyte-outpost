@@ -36,10 +36,11 @@ class OutpostClient:
         r.raise_for_status()
         return r.json()
 
-    async def fetch_work(self) -> list[dict]:
+    async def fetch_work(self) -> dict:
+        """→ {checks, poll_interval_seconds, sweep_pending}."""
         r = await self._http.get(self.cfg.work_url)
         r.raise_for_status()
-        return r.json().get("checks", [])
+        return r.json()
 
     async def post_results(self, results: list[dict]) -> int:
         if not results:
