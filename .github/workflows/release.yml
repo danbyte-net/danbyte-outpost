@@ -8,6 +8,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write # needed to attach the binary to the release
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest
