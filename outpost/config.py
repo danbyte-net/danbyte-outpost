@@ -39,6 +39,14 @@ class Config:
     def snmp_results_url(self) -> str:
         return f"{self.base}/api/outpost/snmp/"
 
+    @property
+    def sweep_work_url(self) -> str:
+        return f"{self.base}/api/outpost/sweep-work/"
+
+    @property
+    def discovered_url(self) -> str:
+        return f"{self.base}/api/outpost/discovered/"
+
 
 class ConfigError(RuntimeError):
     pass

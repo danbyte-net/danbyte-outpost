@@ -119,6 +119,20 @@ async def _snmp_cycle(client, interval: int) -> int:
     return interval
 
 
+async def _sweep_cycle(client, interval: int) -> int:
+    """Pull discovery prefixes, ICMP-sweep each locally, post live IPs back."""
+    from .discover import sweep_prefix
+
+    work = await client.fetch_sweep_work()
+    prefixes = work.get("prefixes", [])
+    interval = int(work.get("interval_seconds", interval)) or interval
+    if prefixes:
+        results = await asyncio.gather(*(sweep_prefix(p) for p in prefixes))
+        n = await client.post_discovered(list(results))
+        print(f"outpost: swept {len(prefixes)} prefix(es), created {n} IP(s)")
+    return interval
+
+
 async def _loop(cfg: Config) -> None:
     """Poll loop: hello, then repeatedly pull work → run checks → post results.
     SNMP discovery runs on its own (slower) cadence alongside the checks."""
@@ -130,7 +144,9 @@ async def _loop(cfg: Config) -> None:
     client = OutpostClient(cfg)
     poll = cfg.poll_seconds
     snmp_interval = 900
+    sweep_interval = 600
     next_snmp = 0.0  # run one discovery pass right after startup
+    next_sweep = 0.0
     try:
         try:
             info = await client.hello()
@@ -159,6 +175,13 @@ async def _loop(cfg: Config) -> None:
                 except Exception as e:  # SNMP trouble never blocks checks
                     print(f"outpost: snmp error ({e})", file=sys.stderr)
                 next_snmp = time.monotonic() + snmp_interval
+
+            if time.monotonic() >= next_sweep:
+                try:
+                    sweep_interval = await _sweep_cycle(client, sweep_interval)
+                except Exception as e:  # sweep trouble never blocks checks
+                    print(f"outpost: sweep error ({e})", file=sys.stderr)
+                next_sweep = time.monotonic() + sweep_interval
 
             await asyncio.sleep(poll)
     finally:

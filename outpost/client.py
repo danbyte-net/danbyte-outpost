@@ -62,3 +62,18 @@ class OutpostClient:
         )
         r.raise_for_status()
         return r.json().get("ingested", 0)
+
+    async def fetch_sweep_work(self) -> dict:
+        """Discovery prefixes to sweep → {prefixes, interval_seconds}."""
+        r = await self._http.get(self.cfg.sweep_work_url)
+        r.raise_for_status()
+        return r.json()
+
+    async def post_discovered(self, results: list[dict]) -> int:
+        if not results:
+            return 0
+        r = await self._http.post(
+            self.cfg.discovered_url, json={"results": results}
+        )
+        r.raise_for_status()
+        return r.json().get("created", 0)
