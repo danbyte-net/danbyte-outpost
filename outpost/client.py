@@ -48,6 +48,14 @@ class OutpostClient:
         r.raise_for_status()
         return r.json().get("ingested", 0)
 
+    async def download_binary(self, version: str) -> bytes:
+        """Download a release's binary artifact (auth'd by the Outpost token)."""
+        r = await self._http.get(
+            f"{self.cfg.base}/api/outpost/download/{version}/"
+        )
+        r.raise_for_status()
+        return r.content
+
     async def fetch_snmp_work(self) -> dict:
         """SNMP discovery targets + creds for this Outpost → {devices, interval_seconds}."""
         r = await self._http.get(self.cfg.snmp_work_url)

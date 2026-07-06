@@ -147,11 +147,14 @@ async def _loop(cfg: Config) -> None:
     sweep_interval = 600
     next_snmp = 0.0  # run one discovery pass right after startup
     next_sweep = 0.0
+    hello_interval = 300
+    next_hello = time.monotonic() + hello_interval
     try:
         try:
             info = await client.hello()
             poll = int(info.get("poll_interval_seconds", poll)) or poll
             print(f"Danbyte Outpost {__version__} online → {cfg.url} (poll {poll}s)")
+            await _maybe_update(client, info)  # may replace the binary + exit
         except Exception as e:  # keep going; retry in the loop
             print(f"outpost: hello failed ({e}); retrying", file=sys.stderr)
 
@@ -183,9 +186,27 @@ async def _loop(cfg: Config) -> None:
                     print(f"outpost: sweep error ({e})", file=sys.stderr)
                 next_sweep = time.monotonic() + sweep_interval
 
+            if time.monotonic() >= next_hello:
+                try:
+                    info = await client.hello()
+                    await _maybe_update(client, info)  # may exit to restart
+                except Exception as e:
+                    print(f"outpost: hello error ({e})", file=sys.stderr)
+                next_hello = time.monotonic() + hello_interval
+
             await asyncio.sleep(poll)
     finally:
         await client.aclose()
+
+
+async def _maybe_update(client, info: dict) -> None:
+    """If the core asked this (auto-updating) Outpost to move to a new golden
+    version, do it — self_update replaces the binary and exits to restart."""
+    from .updater import can_self_update, self_update
+
+    target = info.get("update_to")
+    if target and can_self_update():
+        await self_update(client, target)
 
 
 if __name__ == "__main__":
