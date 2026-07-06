@@ -1,0 +1,30 @@
+name: Build binary
+
+# Build a single-file Linux binary and attach it to the GitHub release on a tag
+# (v*). Users then upload it to their Danbyte instance's package store, or the
+# instance references it — the version-pinned installer serves it to hosts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the single-file binary
+        run: sh scripts/build-binary.sh
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: danbyte-outpost-linux-x86_64
+          path: dist/danbyte-outpost
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/danbyte-outpost

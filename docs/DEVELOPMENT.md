@@ -38,6 +38,28 @@ danbyte-outpost check --url=https://<danbyte> --token=<TOKEN> --insecure   # dev
 danbyte-outpost run   --url=https://<danbyte> --token=<TOKEN> --insecure
 ```
 
+## Building the single-file binary
+
+The binary is **not** produced by a normal commit — it's built from a **tagged
+release**, so a host can install the Outpost with no Python at all.
+
+- **Automatic (the normal path):** push a version tag and CI does it.
+  ```bash
+  git tag v0.2.0 && git push origin v0.2.0
+  ```
+  `.github/workflows/release.yml` runs `scripts/build-binary.sh` (PyInstaller
+  `--onefile`) on Linux and **attaches `danbyte-outpost` to the GitHub release**.
+- **Manual (to test locally):** `sh scripts/build-binary.sh` → `dist/danbyte-outpost`.
+
+A binary is OS/arch-specific (the CI one is Linux x86_64); build others on their
+own platforms. Then **upload the binary to your Danbyte instance's package
+store** (Governance → Monitoring engines → Outpost versions). Danbyte detects a
+bare binary and generates an installer that just downloads + `chmod +x`es it
+(no venv/pip) — whereas a `.whl`/`.tar.gz` or git release installs into a venv.
+
+So the flow is: **land the change → bump the version → tag → CI builds the binary
+→ upload it to the package store → roll it out per site.**
+
 ## Before a release
 
 1. Land the check/agent change (in the monorepo first if it touches

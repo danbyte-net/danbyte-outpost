@@ -17,6 +17,7 @@ danbyte-outpost = "outpost.run:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+build = ["pyinstaller>=6.0"]  # single-file binary — see scripts/build-binary.sh
 
 [build-system]
 requires = ["setuptools>=68"]
