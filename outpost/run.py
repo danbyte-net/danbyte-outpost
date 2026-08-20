@@ -70,17 +70,19 @@ async def _once() -> int:
     JSON to stdout. stdout must stay clean (JSON only) — Danbyte parses it."""
     import json
 
-    from .checks import run_check
+    from .checks import attach_ptrs, run_check
 
     raw = sys.stdin.read()
     try:
-        work = json.loads(raw or "{}").get("checks", [])
+        payload = json.loads(raw or "{}")
     except json.JSONDecodeError as e:
         print(json.dumps({"results": [], "error": f"bad work json: {e}"}))
         return 1
+    work = payload.get("checks", [])
     results = (
         list(await asyncio.gather(*(run_check(c) for c in work))) if work else []
     )
+    results = await attach_ptrs(results, work, payload.get("dns") or {})
     print(json.dumps({"results": results}))
     return 0
 
@@ -138,7 +140,7 @@ async def _loop(cfg: Config) -> None:
     SNMP discovery runs on its own (slower) cadence alongside the checks."""
     import time
 
-    from .checks import run_check
+    from .checks import attach_ptrs, run_check
     from .client import OutpostClient
 
     client = OutpostClient(cfg)
@@ -163,10 +165,15 @@ async def _loop(cfg: Config) -> None:
                 work = await client.fetch_work()
                 checks = work.get("checks", [])
                 if checks:
-                    results = await asyncio.gather(
-                        *(run_check(c) for c in checks)
+                    results = list(
+                        await asyncio.gather(*(run_check(c) for c in checks))
                     )
-                    n = await client.post_results(list(results))
+                    # Danbyte says per poll whether we resolve PTR, and with
+                    # what. Omitted or off → the core resolves centrally.
+                    results = await attach_ptrs(
+                        results, checks, work.get("dns") or {}
+                    )
+                    n = await client.post_results(results)
                     print(f"outpost: ran {len(checks)}, reported {n}")
                 # A "Discover now" click → sweep on this cycle, not in 10 min.
                 if work.get("sweep_pending"):

@@ -57,6 +57,27 @@ protocol break — but it must reach the remote:
 4. Until a given remote is upgraded, that kind returns `unknown` there (rule 2) —
    which is the correct, visible signal, not an outage.
 
+## Reverse DNS (added 0.7.0)
+
+`work` and `hello` may carry `"dns": {"resolve": bool, "resolvers": [str]}`.
+When `resolve` is true the agent looks up each target's PTR - through the listed
+nameservers, or its own host resolver when the list is empty - and reports the
+name in that result's `detail` as `ptr`.
+
+**The core decides on the presence of `ptr`, not its value.** An agent that ran
+a lookup must always send the key, using `""` when the address genuinely has no
+PTR. An agent that did not look must never send it.
+
+Get that backwards and the core reads silence as "this address has no name",
+which clears DNS names across the estate. For the same reason a lookup that was
+never *answered* - timeout, refusal, unreachable server - must leave the key
+off: `danbyte_checks.reverse_dns.resolve_ptrs` already omits those addresses
+from its result rather than returning `None` for them, so following its output
+is correct by default.
+
+Additive on both sides, so no `PROTOCOL_VERSION` bump: an older agent ignores
+the directive and never sends `ptr`, and the core resolves centrally as before.
+
 ## Capability negotiation (planned)
 
 Today `hello` carries `protocol` + `version`; the core records them and relies on

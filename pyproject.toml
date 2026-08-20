@@ -1,6 +1,6 @@
 [project]
 name = "danbyte-outpost"
-version = "0.6.0"
+version = "0.7.0"
 description = "Remote monitoring agent for Danbyte — runs checks at a site with no direct path to the core and reports back over outbound HTTPS (or is driven in over SSH)."
 requires-python = ">=3.11"
 readme = "README.md"
@@ -10,6 +10,10 @@ dependencies = [
     "icmplib>=3.0",    # icmp
     "pysnmp>=6.2",     # snmp
     "asyncssh>=2.14",  # ssh
+    # Reverse DNS against named servers. Declared rather than optional because
+    # the shipped artifact is a single PyInstaller binary - an operator cannot
+    # add a package to it later, so an undeclared import would simply never work.
+    "dnspython>=2",
 ]
 
 [project.scripts]
