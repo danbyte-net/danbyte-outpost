@@ -1,8 +1,8 @@
-"""SNMP system-facts fetch — the read-only *observed* layer for Phase 1 of the
+"""SNMP system-facts fetch - the read-only *observed* layer for Phase 1 of the
 discovery feature (issue #84).
 
 A single SNMP GET of the system MIB (sysDescr/sysObjectID/sysUpTime/sysContact/
-sysName/sysLocation), returned as a named dict — never raw OIDs to the caller.
+sysName/sysLocation), returned as a named dict - never raw OIDs to the caller.
 Reuses the v2c/v3 credential shape used by ``monitoring.checkers.snmp`` so an
 ``SnmpProfile``'s ``params`` + ``secret_params`` work unchanged here.
 
@@ -45,7 +45,7 @@ class SnmpFactsError(Exception):
 
 
 def _auth_data(version, params, secret_params, mod):
-    """Mirror of ``SnmpChecker._auth_data`` — build pysnmp auth from the same
+    """Mirror of ``SnmpChecker._auth_data`` - build pysnmp auth from the same
     ``params`` / ``secret_params`` shape an ``SnmpProfile`` stores."""
     if version == "v3":
         user = secret_params.get("username") or params.get("username")
@@ -115,7 +115,7 @@ def fetch_system_facts_sync(
     )
 
 
-# ─── Interface enrichment (IF-MIB ifTable + ifXTable) — Phase 2 ─────────────
+# ─── Interface enrichment (IF-MIB ifTable + ifXTable) - Phase 2 ─────────────
 #
 # Per LibreNMS/Observium practice we read ifXTable (ifName/ifAlias/ifHighSpeed)
 # alongside the base ifTable; ifXTable's HC counters don't wrap on fast links.
@@ -150,7 +150,7 @@ _IANA_IFTYPE = {
     "117": "ethernet", "142": "ipForward",
 }
 
-# Q-BRIDGE-MIB (802.1Q) — for per-interface access VLAN (PVID). VLAN membership
+# Q-BRIDGE-MIB (802.1Q) - for per-interface access VLAN (PVID). VLAN membership
 # is keyed by *bridge port*, not ifIndex, so we also read the bridge-port→ifIndex
 # map. (Tagged-VLAN egress bitmaps are a later add; the access/untagged VLAN is
 # what an IPAM cares about most.)
@@ -225,7 +225,7 @@ async def fetch_interfaces(
                 for oid, value in var_binds:
                     if_index = str(oid).split(".")[-1]
                     rows.setdefault(if_index, {})[key] = value.prettyPrint()
-        except Exception:  # noqa: BLE001 — a missing column shouldn't fail the rest
+        except Exception:  # noqa: BLE001 - a missing column shouldn't fail the rest
             continue
 
     # ipAddrTable (IPv4 ipAdEntIfIndex): map ifIndex → its configured addresses,
@@ -243,10 +243,10 @@ async def fetch_interfaces(
             for oid, value in var_binds:
                 ip = str(oid)[len(_IP_AD_ENT_IFINDEX) + 1:]
                 ip_by_ifindex.setdefault(value.prettyPrint(), []).append(ip)
-    except Exception:  # noqa: BLE001 — ipAddrTable is optional
+    except Exception:  # noqa: BLE001 - ipAddrTable is optional
         pass
 
-    # Q-BRIDGE-MIB: per-interface access VLAN (PVID). Optional — L3-only devices
+    # Q-BRIDGE-MIB: per-interface access VLAN (PVID). Optional - L3-only devices
     # and non-switches simply won't answer, which is fine.
     vlan_cols: dict[str, dict] = {}
     for ckey, base in (
@@ -320,6 +320,9 @@ _LLDP_REM_PORT_DESC = "1.0.8802.1.1.2.1.4.1.1.8"
 _LLDP_REM_PORT_ID = "1.0.8802.1.1.2.1.4.1.1.7"
 # ipNetToMediaPhysAddress, indexed by ifIndex.a.b.c.d
 _ARP_PHYS = "1.3.6.1.2.1.4.22.1.2"
+# BRIDGE-MIB forwarding table: dot1dTpFdbPort (index = the 6 MAC octets) →
+# bridge port number; dot1dBasePortIfIndex maps that bridge port → ifIndex.
+_DOT1D_TP_FDB_PORT = "1.3.6.1.2.1.17.4.3.1.2"
 
 
 def parse_lldp(loc_ports: dict, rem_sysname: dict, rem_port_desc: dict,
@@ -355,9 +358,36 @@ def parse_arp(phys: dict) -> list[dict]:
     return out
 
 
-async def _walk_column(mod, engine, auth, transport, base: str) -> dict:
+def parse_fdb(fdb_port: dict, base_port_ifindex: dict) -> list[dict]:
+    """Pure MAC-address-table parse: dot1dTpFdbPort (index = the 6 decimal MAC
+    octets → bridge port) joined with dot1dBasePortIfIndex (bridge port →
+    ifIndex) → ``[{mac, if_index}]``. The bridge port is resolved to an ifIndex
+    so it joins to interfaces exactly like ARP/ifTable entries."""
+    out = []
+    for index, port in fdb_port.items():
+        octets = index.split(".")
+        if len(octets) != 6:
+            continue
+        try:
+            mac = ":".join(f"{int(o):02x}" for o in octets)
+        except ValueError:
+            continue
+        if_index = base_port_ifindex.get(str(port).strip(), "")
+        if not if_index:
+            continue  # a bridge port with no ifIndex isn't a usable switch port
+        out.append({"mac": mac, "if_index": if_index})
+    return out
+
+
+async def _walk_column(
+    mod, engine, auth, transport, base: str, limit: int | None = None
+) -> dict:
     """Walk one column → ``{oid_tail_after_base: prettyValue}``. Tolerant: a
-    missing/blocked column yields ``{}`` rather than failing the whole fetch."""
+    missing/blocked column yields ``{}`` rather than failing the whole fetch.
+
+    ``limit`` stops after that many bindings - for exploring a whole table base
+    interactively, where the subtree can be far larger than any one column.
+    """
     result: dict = {}
     try:
         walk = mod.bulk_walk_cmd(
@@ -371,6 +401,8 @@ async def _walk_column(mod, engine, auth, transport, base: str) -> dict:
                 tail = str(oid)[len(base) + 1:]
                 if tail:
                     result[tail] = value.prettyPrint()
+            if limit is not None and len(result) >= limit:
+                break
     except Exception:  # noqa: BLE001
         return result
     return result
@@ -401,9 +433,12 @@ async def fetch_topology(
     pdesc = await _walk_column(mod, engine, auth, transport, _LLDP_REM_PORT_DESC)
     pid = await _walk_column(mod, engine, auth, transport, _LLDP_REM_PORT_ID)
     phys = await _walk_column(mod, engine, auth, transport, _ARP_PHYS)
+    fdb_port = await _walk_column(mod, engine, auth, transport, _DOT1D_TP_FDB_PORT)
+    base_port = await _walk_column(mod, engine, auth, transport, _DOT1D_BASE_PORT_IFINDEX)
     return {
         "neighbors": parse_lldp(loc, sysn, pdesc, pid),
         "arp": parse_arp(phys),
+        "fdb": parse_fdb(fdb_port, base_port),
     }
 
 
@@ -417,14 +452,14 @@ def fetch_topology_sync(
 
 def fetch_snmp(target, version, params, secret_params, timeout_ms) -> dict:
     """Fetch a device's full observed SNMP state → ``{data, interfaces,
-    neighbors, arp, reachable, error}``. Pure (no ORM) — the **same** function
+    neighbors, arp, reachable, error}``. Pure (no ORM) - the **same** function
     the core (``poll_device``) and a remote Outpost both run, so discovery gives
     identical results wherever it happens. Facts are required (their failure =
     unreachable); interfaces + topology are best-effort.
     """
     args = (target, version, params or {}, secret_params or {}, timeout_ms)
     out = {
-        "data": {}, "interfaces": [], "neighbors": [], "arp": [],
+        "data": {}, "interfaces": [], "neighbors": [], "arp": [], "fdb": [],
         "reachable": False, "error": "",
     }
     try:
@@ -438,8 +473,149 @@ def fetch_snmp(target, version, params, secret_params, timeout_ms) -> dict:
             topo = fetch_topology_sync(*args)
             out["neighbors"] = topo.get("neighbors", [])
             out["arp"] = topo.get("arp", [])
+            out["fdb"] = topo.get("fdb", [])
         except SnmpFactsError:
             pass
     except SnmpFactsError as exc:
         out["error"] = str(exc)[:500]
     return out
+
+
+# ─── Arbitrary OID fetch (user-defined sensors) ─────────────────────────────
+
+async def fetch_oid(
+    target: str, version: str, params: dict, secret_params: dict,
+    oid: str, walk: bool, timeout_ms: int = 4000, limit: int | None = None,
+) -> dict:
+    """Read one user-defined OID → ``{index: prettyValue, ...}``.
+
+    WALK mode returns one entry per table row (key = the OID tail after
+    ``oid``); scalar (GET) mode returns ``{"0": value}``. Raises
+    ``SnmpFactsError`` on a config/engine failure so the caller records the
+    error; an empty dict means the agent simply had nothing there.
+    """
+    try:
+        import pysnmp.hlapi.v3arch.asyncio as mod
+    except Exception as e:  # noqa: BLE001
+        raise SnmpFactsError(f"pysnmp unavailable: {e}")
+
+    port = int(params.get("port", 161))
+    timeout_s = max(timeout_ms / 1000, 0.2)
+    try:
+        auth = _auth_data(version, params, secret_params, mod)
+        transport = await mod.UdpTransportTarget.create(
+            (target, port), timeout=timeout_s, retries=0
+        )
+        engine = mod.SnmpEngine()
+        if walk:
+            return await _walk_column(
+                mod, engine, auth, transport, oid.strip("."), limit
+            )
+        error_indication, error_status, _, var_binds = await mod.get_cmd(
+            engine, auth, transport, mod.ContextData(),
+            mod.ObjectType(mod.ObjectIdentity(oid)),
+        )
+    except Exception as e:  # noqa: BLE001
+        raise SnmpFactsError(f"snmp error: {e}")
+    if error_indication:
+        raise SnmpFactsError(str(error_indication))
+    if error_status:
+        raise SnmpFactsError(error_status.prettyPrint())
+    return {"0": v.prettyPrint() for _, v in var_binds}
+
+
+async def list_oid_children(
+    target: str, version: str, params: dict, secret_params: dict,
+    base: str, timeout_ms: int = 4000, limit: int = 64,
+) -> list[dict]:
+    """List the direct children of ``base`` → ``[{sub, oid, sample}, ...]``.
+
+    One level, not a subtree. A plain walk can't browse the tree: OIDs come back
+    in lexicographic order, so walking a high base like ``1.3.6.1.4.1`` spends
+    its entire budget inside the first vendor it meets and never reveals that
+    the others exist.
+
+    So each child is found with a single GETNEXT, then its whole subtree is
+    skipped by probing ``base.child.4294967295`` - greater than anything within
+    that child (max sub-identifier), yet still less than the next sibling, so no
+    sibling is stepped over. That's one round trip per child instead of one per
+    value.
+    """
+    try:
+        import pysnmp.hlapi.v3arch.asyncio as mod
+    except Exception as e:  # noqa: BLE001
+        raise SnmpFactsError(f"pysnmp unavailable: {e}")
+
+    base = base.strip(".")
+    prefix = f"{base}."
+    port = int(params.get("port", 161))
+    timeout_s = max(timeout_ms / 1000, 0.2)
+    out: list[dict] = []
+    try:
+        auth = _auth_data(version, params, secret_params, mod)
+        transport = await mod.UdpTransportTarget.create(
+            (target, port), timeout=timeout_s, retries=0
+        )
+        engine = mod.SnmpEngine()
+        probe = base
+        while len(out) < limit:
+            error_indication, error_status, _, var_binds = await mod.next_cmd(
+                engine, auth, transport, mod.ContextData(),
+                mod.ObjectType(mod.ObjectIdentity(probe)),
+                lexicographicMode=True,
+            )
+            if error_indication or error_status:
+                # Nothing collected yet → the agent never answered, which is a
+                # very different thing from an empty subtree and must not be
+                # reported as "nothing there". Small BMCs do time out under
+                # consecutive browses. Once we have children, keep the partial
+                # listing: it's still navigable.
+                if not out:
+                    raise SnmpFactsError(
+                        str(error_indication or error_status.prettyPrint())
+                    )
+                break
+            if not var_binds:
+                break
+            oid, value = var_binds[0]
+            found = str(oid)
+            if not found.startswith(prefix):
+                break  # walked out of the subtree - done
+            sub = found[len(prefix):].split(".")[0]
+            out.append({
+                "sub": sub,
+                "oid": f"{base}.{sub}",
+                # Where the first value under this child actually lives, which
+                # is what tells a table entry (one level down) from a branch.
+                "first_oid": found,
+                "sample": value.prettyPrint(),
+            })
+            probe = f"{base}.{sub}.4294967295"
+    except SnmpFactsError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise SnmpFactsError(f"snmp error: {e}")
+    return out
+
+
+def list_oid_children_sync(
+    target, version, params, secret_params, base, timeout_ms=4000, limit=64
+) -> list[dict]:
+    """Synchronous wrapper for browsing the tree from a DRF view."""
+    return asyncio.run(
+        list_oid_children(
+            target, version, params, secret_params, base, timeout_ms, limit
+        )
+    )
+
+
+def fetch_oid_sync(
+    target, version, params, secret_params, oid, walk, timeout_ms=4000,
+    limit: int | None = None,
+) -> dict:
+    """Synchronous wrapper for on-demand sensor polling from a DRF view."""
+    return asyncio.run(
+        fetch_oid(
+            target, version, params, secret_params, oid, walk, timeout_ms, limit
+        )
+    )

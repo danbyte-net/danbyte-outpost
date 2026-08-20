@@ -1,6 +1,6 @@
 """HTTP(S) checker.
 
-Connects to the **assigned IP** (never an arbitrary hostname — that's the SSRF
+Connects to the **assigned IP** (never an arbitrary hostname - that's the SSRF
 guard: the target is fixed by the assignment, the user only chooses scheme /
 port / path). ``up`` when the response status is in ``expected_status`` (and the
 optional body regex matches); ``degraded`` when reachable but those criteria
@@ -15,6 +15,7 @@ import re
 
 import httpx
 
+from . import netguard
 from .base import CheckConfigError, CheckOutcome, register, require_port
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -53,6 +54,18 @@ class HttpChecker:
         expected = set(params.get("expected_status") or [200])
         body_re = params.get("expected_body_regex")
         host_header = params.get("host_header")
+
+        # SSRF guard (policy in danbyte_checks/netguard.py): the cloud metadata
+        # endpoint + unspecified address are always refused; a central Danbyte
+        # server additionally refuses loopback/RFC1918/reserved (a tenant-defined
+        # check would otherwise be a content oracle onto internal services). An
+        # outpost agent keeps the permissive default so on-prem monitoring works.
+        if netguard.target_blocked(target):
+            return CheckOutcome(
+                "down", None,
+                {"url": f"{scheme}://{target}:{port}{path}",
+                 "error": "target address not permitted"},
+            )
 
         # Bracket IPv6 literals for the URL authority.
         authority = f"[{target}]" if ":" in target else target
