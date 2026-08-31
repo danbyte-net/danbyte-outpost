@@ -178,6 +178,10 @@ async def _loop(cfg: Config) -> None:
                 # A "Discover now" click → sweep on this cycle, not in 10 min.
                 if work.get("sweep_pending"):
                     next_sweep = 0.0
+                # A device's "Poll now" routed to this Outpost (#128) → run
+                # the SNMP cycle on this pass instead of the periodic cadence.
+                if work.get("snmp_pending"):
+                    next_snmp = 0.0
             except Exception as e:  # transient — back off and retry
                 print(f"outpost: poll error ({e})", file=sys.stderr)
                 await asyncio.sleep(min(poll * 2, 60))
