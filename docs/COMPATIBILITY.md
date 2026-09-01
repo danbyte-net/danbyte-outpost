@@ -78,6 +78,20 @@ is correct by default.
 Additive on both sides, so no `PROTOCOL_VERSION` bump: an older agent ignores
 the directive and never sends `ptr`, and the core resolves centrally as before.
 
+## LAG membership on interface rows
+
+Interface rows in an SNMP result may carry `lag_if_index` - the ifIndex of the
+aggregate the port belongs to, `""` when it is not a member - and an aggregate
+row reports `type_name: "lag"` (derived from being a membership target, not
+only from ifType 161). The walker reads IEEE8023-LAG-MIB
+`dot3adAggPortAttachedAggID` first and IF-MIB `ifStackTable` as the fallback.
+
+**The core decides on the presence of `lag_if_index`, not its value** - the
+same rule as `ptr`. An agent that looked sends the key on every row, blank
+included; one that never looked sends no such key, and the core reports no
+membership drift for its devices. Additive, no `PROTOCOL_VERSION` bump; the
+vendored `danbyte_checks/snmp_facts.py` carries it.
+
 ## Capability negotiation (planned)
 
 Today `hello` carries `protocol` + `version`; the core records them and relies on
