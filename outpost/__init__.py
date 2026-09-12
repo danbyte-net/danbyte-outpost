@@ -10,5 +10,5 @@ need not upgrade in lockstep with Danbyte (see docs/COMPATIBILITY.md in the
 danbyte-outpost repo).
 """
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 PROTOCOL_VERSION = 1

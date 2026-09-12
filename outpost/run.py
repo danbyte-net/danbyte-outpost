@@ -142,6 +142,7 @@ async def _loop(cfg: Config) -> None:
 
     from .checks import attach_ptrs, run_check
     from .client import OutpostClient
+    from .fast import FastRunner
 
     client = OutpostClient(cfg)
     poll = cfg.poll_seconds
@@ -151,6 +152,8 @@ async def _loop(cfg: Config) -> None:
     next_sweep = 0.0
     hello_interval = 300
     next_hello = time.monotonic() + hello_interval
+    fast: FastRunner | None = None
+    fast_task = None
     try:
         try:
             info = await client.hello()
@@ -159,8 +162,15 @@ async def _loop(cfg: Config) -> None:
             await _maybe_update(client, info)  # may replace the binary + exit
         except Exception as e:  # keep going; retry in the loop
             print(f"outpost: hello failed ({e}); retrying", file=sys.stderr)
+            info = {}
 
         while True:
+            # The fast lane runs beside the poll loop, as its own task, once
+            # the core has said it has the endpoints. A core too old to say
+            # so hands sub-minute checks out on the beat like everything else.
+            if fast is None and info.get("fast"):
+                fast = FastRunner(client, flush_seconds=poll)
+                fast_task = asyncio.create_task(fast.run())
             try:
                 work = await client.fetch_work()
                 checks = work.get("checks", [])
@@ -211,6 +221,12 @@ async def _loop(cfg: Config) -> None:
 
             await asyncio.sleep(poll)
     finally:
+        if fast is not None:
+            fast.stopping = True
+            if fast_task is not None:
+                # Shutting down anyway: a report that fails now is lost, and
+                # that is fine - the core keeps the last status it had.
+                await asyncio.wait({fast_task}, timeout=5)
         await client.aclose()
 
 

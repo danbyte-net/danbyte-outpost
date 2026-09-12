@@ -32,6 +32,14 @@ class Config:
         return f"{self.base}/api/outpost/hello/"
 
     @property
+    def fast_work_url(self) -> str:
+        return f"{self.base}/api/outpost/fast-work/"
+
+    @property
+    def fast_results_url(self) -> str:
+        return f"{self.base}/api/outpost/fast-results/"
+
+    @property
     def snmp_work_url(self) -> str:
         return f"{self.base}/api/outpost/snmp-work/"
 

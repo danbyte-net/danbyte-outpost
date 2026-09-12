@@ -31,10 +31,26 @@ class OutpostClient:
                 "version": __version__,
                 "protocol": PROTOCOL_VERSION,
                 "hostname": platform.node(),
+                # This agent runs a fast lane; the core then hands sub-minute
+                # checks to /fast-work instead of the minute beat.
+                "fast": True,
             },
         )
         r.raise_for_status()
         return r.json()
+
+    async def fetch_fast_work(self) -> dict:
+        """→ {checks: [{…, interval_ms}], refresh_seconds, flush_seconds}."""
+        r = await self._http.get(self.cfg.fast_work_url)
+        r.raise_for_status()
+        return r.json()
+
+    async def post_fast_results(self, results: list[dict]) -> int:
+        if not results:
+            return 0
+        r = await self._http.post(self.cfg.fast_results_url, json={"results": results})
+        r.raise_for_status()
+        return r.json().get("ingested", 0)
 
     async def fetch_work(self) -> dict:
         """→ {checks, poll_interval_seconds, sweep_pending}."""

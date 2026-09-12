@@ -57,3 +57,13 @@ adding a check kind.
 This repo is developed alongside the Danbyte monorepo. `danbyte_checks/` here is
 **vendored** from the monorepo (its source of truth) — see
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Sub-minute checks
+
+Since 0.8 the agent runs a **fast lane** beside its poll loop: checks the core
+marks with an interval under a minute are probed here from an in-memory
+schedule (down to 200 ms for ICMP), buffered, and reported on the poll
+interval - or at once when a probe's reachability changes. The core applies
+its own rise/fall to them, so status and history are identical to a
+core-run check. Needs a Danbyte core with the fast-lane endpoints; against an
+older core the agent simply does not start the lane.

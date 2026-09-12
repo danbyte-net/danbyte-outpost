@@ -25,6 +25,13 @@ The agent ↔ core contract is four small JSON messages. `PROTOCOL_VERSION`
 | Outpost → core | `GET /api/outpost/work` | → `{checks: [{state_id, kind, target, params, secret_params, timeout_ms}]}` |
 | Outpost → core | `POST /api/outpost/results` | `{results: [{state_id, status, latency_ms, detail}]}` |
 | core → Outpost (SSH) | `danbyte-outpost once` | stdin `{checks:[…]}` → stdout `{results:[…]}` |
+| Outpost → core | `GET /api/outpost/fast-work` (0.8+) | → `{checks: [{…, interval_ms}], refresh_seconds, flush_seconds}` |
+| Outpost → core | `POST /api/outpost/fast-results` (0.8+) | `{results: [{state_id, samples: [{t, status, latency_ms, detail?}]}]}` |
+
+The fast-lane pair is additive (protocol 1 unchanged). The agent says
+`fast: true` in hello and only starts its lane when the core answers
+`fast: true` back; an older core never does, an older agent never asks, and
+in both cases sub-minute checks run on the ordinary work loop instead.
 
 ### Rules that keep it compatible
 
