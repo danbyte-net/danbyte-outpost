@@ -99,6 +99,31 @@ included; one that never looked sends no such key, and the core reports no
 membership drift for its devices. Additive, no `PROTOCOL_VERSION` bump; the
 vendored `danbyte_checks/snmp_facts.py` carries it.
 
+## MAC tables, ARP and LLDP (0.9)
+
+An SNMP result from 0.9 carries what the core needs to keep learned MACs with
+history (Danbyte 0.17, #284):
+
+- `fdb` rows keep `mac` and `if_index` and add `vlan`, `fdb_id`, `bridge_port`
+  and `status` (learned / mgmt / other, `""` without a status column). Only
+  learned entries are sent: the switch's own MACs, group addresses and port 0
+  are dropped by the walker.
+- `fdb_meta` says how the table was read: `source` (qbridge, bridge,
+  bridge-vlan, none), `complete`, `truncated`, `vlan_map`, `port_map`, the
+  VLANs read / skipped / failed, the drop counts, `rows`, `elapsed_ms` and
+  `error`.
+- `arp` rows add `type` (invalid entries are dropped), and `arp_meta`
+  (`complete`, `rows`, `error`) says whether the ARP walk ran to its end.
+- `neighbors` rows add `local_if_index` and `remote_caps`.
+
+**The core decides on the presence of `fdb_meta`, not its value** - the same
+rule as `ptr` and `lag_if_index`. An agent without it is treated as legacy:
+no VLAN, the learned-only filter runs on the core, and a read counts as
+complete only when the device answered with a non-empty table. The work list
+may carry `mac_vlan_contexts`, `mac_max_vlans`, `mac_budget_s` and
+`mac_vlan_hint` in `params`; an older agent ignores them. Additive, no
+`PROTOCOL_VERSION` bump; the vendored `danbyte_checks/snmp_facts.py` carries it.
+
 ## Capability negotiation (planned)
 
 Today `hello` carries `protocol` + `version`; the core records them and relies on
