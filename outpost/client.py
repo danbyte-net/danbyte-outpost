@@ -10,8 +10,10 @@ from .config import Config
 
 
 class OutpostClient:
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, capabilities: dict | None = None):
         self.cfg = cfg
+        #: What hello advertises beyond checks (discovery kinds, nmap).
+        self.capabilities = capabilities or {}
         self._http = httpx.AsyncClient(
             verify=cfg.verify_tls,
             timeout=30.0,
@@ -34,6 +36,8 @@ class OutpostClient:
                 # This agent runs a fast lane; the core then hands sub-minute
                 # checks to /fast-work instead of the minute beat.
                 "fast": True,
+                # Discovery work it can run; an older core ignores the key.
+                "capabilities": self.capabilities,
             },
         )
         r.raise_for_status()
@@ -87,6 +91,20 @@ class OutpostClient:
         )
         r.raise_for_status()
         return r.json().get("ingested", 0)
+
+    async def fetch_discovery_work(self) -> dict:
+        """Claim the next batch of discovery work → {jobs}. Holds credentials
+        for package inventory: kept in memory only, never logged."""
+        r = await self._http.get(self.cfg.discovery_work_url)
+        r.raise_for_status()
+        return r.json()
+
+    async def post_discovery_results(self, results: list[dict]) -> dict:
+        if not results:
+            return {"accepted": 0, "refused": 0}
+        r = await self._http.post(self.cfg.discovery_results_url, json={"results": results})
+        r.raise_for_status()
+        return r.json()
 
     async def fetch_sweep_work(self) -> dict:
         """Discovery prefixes to sweep → {prefixes, interval_seconds}."""

@@ -22,7 +22,7 @@ standalone), but the **monorepo copy is authoritative**. Never hand-edit the
 checkers here — edit them in the monorepo, then:
 
 ```bash
-scripts/sync-checks.sh /home/crosk/danbyte    # copy monorepo danbyte_checks/ -> here
+scripts/sync-checks.sh /home/crosk/danbyte    # copy monorepo danbyte_checks/ (modules + data/) -> here
 ```
 
 The script refuses to run if the files already match (nothing to do) and prints a

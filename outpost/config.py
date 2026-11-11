@@ -14,6 +14,9 @@ class Config:
     token: str
     poll_seconds: int = 15
     verify_tls: bool = True
+    #: The nmap discovery may run (an absolute path); empty = ``nmap`` on PATH.
+    #: Never installed by the agent.
+    nmap_binary: str = ""
 
     @property
     def base(self) -> str:
@@ -55,6 +58,14 @@ class Config:
     def discovered_url(self) -> str:
         return f"{self.base}/api/outpost/discovered/"
 
+    @property
+    def discovery_work_url(self) -> str:
+        return f"{self.base}/api/outpost/discovery-work/"
+
+    @property
+    def discovery_results_url(self) -> str:
+        return f"{self.base}/api/outpost/discovery-results/"
+
 
 class ConfigError(RuntimeError):
     pass
@@ -83,4 +94,5 @@ def load(overrides: dict | None = None) -> Config:
             if o.get("verify_tls") is not None
             else os.environ.get("OUTPOST_VERIFY_TLS", "1") != "0"
         ),
+        nmap_binary=(o.get("nmap_binary") or os.environ.get("OUTPOST_NMAP_BINARY", "")).strip(),
     )

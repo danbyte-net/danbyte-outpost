@@ -24,6 +24,7 @@ def _parse(argv: list[str]) -> tuple[str, dict]:
     p.add_argument("--token")
     p.add_argument("--poll", type=int)
     p.add_argument("--insecure", action="store_true", help="skip TLS verify (lab)")
+    p.add_argument("--nmap", help="absolute path of an nmap discovery may run")
     ns = p.parse_args(argv)
     overrides: dict = {}
     if ns.url:
@@ -34,6 +35,8 @@ def _parse(argv: list[str]) -> tuple[str, dict]:
         overrides["poll"] = ns.poll
     if ns.insecure:
         overrides["verify_tls"] = False
+    if ns.nmap:
+        overrides["nmap_binary"] = ns.nmap
     return ns.command, overrides
 
 
@@ -140,11 +143,16 @@ async def _loop(cfg: Config) -> None:
     SNMP discovery runs on its own (slower) cadence alongside the checks."""
     import time
 
+    from . import discovery
     from .checks import attach_ptrs, run_check
     from .client import OutpostClient
     from .fast import FastRunner
 
-    client = OutpostClient(cfg)
+    # What hello advertises: discovery kinds, and nmap when one may run here
+    # (looked up once at start; a restart picks up a newly installed one).
+    caps = await asyncio.to_thread(discovery.capabilities, cfg.nmap_binary)
+    client = OutpostClient(cfg, caps)
+    discovery_task = None
     poll = cfg.poll_seconds
     snmp_interval = 900
     sweep_interval = 600
@@ -192,6 +200,13 @@ async def _loop(cfg: Config) -> None:
                 # the SNMP cycle on this pass instead of the periodic cadence.
                 if work.get("snmp_pending"):
                     next_snmp = 0.0
+                # Discovery waits for us (a core with the endpoints says so).
+                # It runs beside the loop, one cycle at a time, so a long
+                # scan never holds up the checks.
+                if discovery.wanted(info, work) and (
+                        discovery_task is None or discovery_task.done()):
+                    discovery_task = asyncio.create_task(
+                        _discovery_cycle(client, cfg.nmap_binary))
             except Exception as e:  # transient — back off and retry
                 print(f"outpost: poll error ({e})", file=sys.stderr)
                 await asyncio.sleep(min(poll * 2, 60))
@@ -221,6 +236,8 @@ async def _loop(cfg: Config) -> None:
 
             await asyncio.sleep(poll)
     finally:
+        if discovery_task is not None and not discovery_task.done():
+            discovery_task.cancel()
         if fast is not None:
             fast.stopping = True
             if fast_task is not None:
@@ -228,6 +245,19 @@ async def _loop(cfg: Config) -> None:
                 # that is fine - the core keeps the last status it had.
                 await asyncio.wait({fast_task}, timeout=5)
         await client.aclose()
+
+
+async def _discovery_cycle(client, nmap_binary: str) -> None:
+    """Run the discovery work waiting for this Outpost; never raises (the
+    core gives up what is not reported, at its deadline)."""
+    from .discovery import cycle
+
+    try:
+        n = await cycle(client, nmap_binary=nmap_binary)
+        if n:
+            print(f"outpost: discovery reported {n} host(s)")
+    except Exception as e:  # noqa: BLE001 - discovery trouble never stops checks
+        print(f"outpost: discovery error ({type(e).__name__})", file=sys.stderr)
 
 
 async def _maybe_update(client, info: dict) -> None:

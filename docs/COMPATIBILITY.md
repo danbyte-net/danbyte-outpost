@@ -124,10 +124,62 @@ may carry `mac_vlan_contexts`, `mac_max_vlans`, `mac_budget_s` and
 `mac_vlan_hint` in `params`; an older agent ignores them. Additive, no
 `PROTOCOL_VERSION` bump; the vendored `danbyte_checks/snmp_facts.py` carries it.
 
-## Capability negotiation (planned)
+## Discovery work (0.10)
 
-Today `hello` carries `protocol` + `version`; the core records them and relies on
-graceful `unknown` degradation. The planned improvement is for `hello` to also
-advertise the agent's **supported check kinds**, so the core simply doesn't hand
-a remote work it can't run (turning a silent `unknown` into no-op scheduling).
-Until then, the graceful-degradation rules above are the contract.
+A Danbyte discovery profile can run on an Outpost: package inventory over
+SSH and service scans (the built-in connect scan, or an nmap the admin
+installed). This is the first work that is **negotiated** instead of
+degrading to `unknown`:
+
+| Direction | Endpoint | Body |
+|---|---|---|
+| Outpost → core | `POST /api/outpost/hello` | adds `capabilities: {discovery: {kinds, protocol, nmap: {version} or null, nmap_reason}}`; the answer adds `discovery: true` |
+| Outpost → core | `GET /api/outpost/work` | the answer adds `discovery_pending: bool` |
+| Outpost → core | `GET /api/outpost/discovery-work` | → `{jobs: [{run_id, kind, …, items: [...]}]}` |
+| Outpost → core | `POST /api/outpost/discovery-results` | `{results: [{item_id, result, observed?, used?, attempts?}]}` → `{accepted, refused}` |
+
+- **An older agent** sends no `capabilities`. The core hands it no
+  discovery work at all; the run's hosts say the Outpost "cannot run it"
+  and which agent version they need. Nothing is attempted from the server
+  instead - a different network vantage is a different scan.
+- **An older core** answers hello without `discovery` and work without
+  `discovery_pending`. This agent then never calls the discovery endpoints.
+- **The core decides on `kinds`, not on `version`**: an agent advertises
+  only what it can run, and the core never hands out a kind (or nmap) the
+  last hello did not name.
+- An unknown job `kind` is skipped: nothing runs, nothing is posted, and
+  the core gives the items up at their deadline.
+
+The jobs are built by the core: scope, exemptions, deny subnets, maintenance
+and the credentials are all decided there. A package inventory item carries
+the address, the accepted host keys to pin (`known_hosts`, or `first_use`),
+and its logins most secure first with their credentials - delivered the way
+SNMP credentials already are (Bearer token, the Outpost's own tenant only,
+claimed once, `Cache-Control: no-store`). The agent holds them in memory for
+the connection, drops them when the host is done and never prints or writes
+them. A service-scan job carries the port list, the rate, the hosts at once
+and the engine (`builtin` or `nmap` with its intensity, timing and host
+timeout). WinRM is never sent to an Outpost: it reads over SSH only.
+
+Results use the shapes of `danbyte_checks.inventory.result_as_dict` and
+`danbyte_checks.service_scan.host_result_as_dict`. The core reads them back
+with `result_from_dict` / `host_result_from_dict`, which accept only what
+the collectors can produce: the item's own address and ports, capped strings,
+packages that pass the parsers' name and version checks, host keys whose
+fingerprint the core computes itself. Inventory results are posted one host
+per request (a host's package list can run to megabytes), scan results up to
+50 per request.
+
+nmap is never installed by the agent and is refused when it runs as root
+(the default systemd unit does): set `OUTPOST_NMAP_BINARY` (or `--nmap`) and
+run the agent as an unprivileged user to offer it. It is looked up once when
+the agent starts.
+
+The vendored `danbyte_checks/data/` (the service scan's Recog fingerprints and
+their notice) is synced, packaged and frozen into the binary with the code.
+
+## Capability negotiation
+
+`hello` carries `protocol`, `version` and, from 0.10, `capabilities` for the
+discovery work kinds (above). Check kinds are still not negotiated: they keep
+relying on graceful `unknown` degradation.

@@ -42,6 +42,7 @@ danbyte-outpost once                       # SSH transport: work JSON on stdin â
 ```
 
 Config comes from flags or the environment (`OUTPOST_URL`, `OUTPOST_TOKEN`,
+`OUTPOST_NMAP_BINARY`,
 `OUTPOST_POLL`). See `deploy/danbyte-outpost.service` for a systemd unit.
 
 ## Compatibility
@@ -67,3 +68,16 @@ interval - or at once when a probe's reachability changes. The core applies
 its own rise/fall to them, so status and history are identical to a
 core-run check. Needs a Danbyte core with the fast-lane endpoints; against an
 older core the agent simply does not start the lane.
+
+## Discovery
+
+Since 0.10 the agent runs Danbyte **discovery** work for its site: package
+inventory over SSH and service scans, with the same collectors the core runs
+(`danbyte_checks.inventory`, `service_scan`, `nmap`). It advertises what it
+can do in hello; the core hands it work only then, and only when a profile
+runs on this Outpost. Credentials for inventory come with the work, are kept
+in memory for the connection and never written or printed. nmap is optional,
+never installed by the agent, and refused when the agent runs as root: set
+`OUTPOST_NMAP_BINARY` (or `--nmap=/usr/bin/nmap`) and run the service as an
+unprivileged user to offer it. Against an older core nothing changes. See
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md#discovery-work-010).
