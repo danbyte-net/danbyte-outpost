@@ -171,12 +171,27 @@ per request (a host's package list can run to megabytes), scan results up to
 50 per request.
 
 nmap is never installed by the agent and is refused when it runs as root
-(the default systemd unit does): set `OUTPOST_NMAP_BINARY` (or `--nmap`) and
-run the agent as an unprivileged user to offer it. It is looked up once when
-the agent starts.
+(units installed before 0.10 do): set `OUTPOST_NMAP_BINARY` (or `--nmap`) and
+run the agent as the service user (`migrate-service-user`, below) to offer it.
+It is looked up once when the agent starts.
 
 The vendored `danbyte_checks/data/` (the service scan's Recog fingerprints and
 their notice) is synced, packaged and frozen into the binary with the code.
+
+## Runtime: root or not (0.10)
+
+`hello` adds `capabilities.runtime: {root: bool}`, and the `once` output adds
+`runtime: {root: bool}` beside `results`. The core shows a warning on an
+Outpost that runs as root and never blocks anything on it. An older agent
+sends neither (the core shows nothing: unknown), an older core ignores both.
+
+From 0.10 the installer runs the agent as the system user `danbyte-outpost`
+with no capabilities. An install from before keeps its root unit through a
+self-update (only the binary is swapped) and keeps working; an
+administrator moves it with `sudo danbyte-outpost migrate-service-user`
+(or by re-running the installer). The agent never changes its own unit or
+asks for privilege. Self-update needs its binary's directory to be writable
+by the agent; when it is not, the agent says so once and keeps its version.
 
 ## Capability negotiation
 

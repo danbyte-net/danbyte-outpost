@@ -26,6 +26,12 @@ by *your* Danbyte instance (so airgapped hosts never touch GitHub/PyPI):
 curl -fsSL https://<your-danbyte>/api/outpost/install.sh | sudo sh -s -- --token=<TOKEN>
 ```
 
+The installer creates the system user `danbyte-outpost` (no login shell, no
+home) and runs the service as that user with no capabilities: ICMP uses
+unprivileged datagram sockets, the agent binds no port, and nmap runs with
+`--unprivileged`. The binary's directory belongs to that user so the agent
+can update itself; root never runs it. See [Service user](#service-user).
+
 Or install from source:
 
 ```bash
@@ -39,6 +45,7 @@ danbyte-outpost run --url=https://<your-danbyte> --token=<TOKEN>
 danbyte-outpost run    --url=… --token=…   # the poll loop (HTTPS pull transport)
 danbyte-outpost check  --url=… --token=…   # one-shot: verify the token + assignment
 danbyte-outpost once                       # SSH transport: work JSON on stdin → results on stdout
+sudo danbyte-outpost migrate-service-user  # move a root-run service to the service user
 ```
 
 Config comes from flags or the environment (`OUTPOST_URL`, `OUTPOST_TOKEN`,
@@ -78,6 +85,56 @@ can do in hello; the core hands it work only then, and only when a profile
 runs on this Outpost. Credentials for inventory come with the work, are kept
 in memory for the connection and never written or printed. nmap is optional,
 never installed by the agent, and refused when the agent runs as root: set
-`OUTPOST_NMAP_BINARY` (or `--nmap=/usr/bin/nmap`) and run the service as an
-unprivileged user to offer it. Against an older core nothing changes. See
+`OUTPOST_NMAP_BINARY` (or `--nmap=/usr/bin/nmap`) and run the service as the
+service user (see below) to offer it. Against an older core nothing changes. See
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md#discovery-work-010).
+
+## Service user
+
+Since 0.10 a fresh install runs as the system user `danbyte-outpost`. An
+Outpost installed earlier runs as root, and a self-update only swaps the
+binary, so it keeps running as root after updating to 0.10: everything works
+as before except nmap, the log says so at start, and Danbyte shows a
+**root** badge on the Outpost. Move it over once, on the host:
+
+```bash
+sudo /opt/danbyte-outpost/danbyte-outpost migrate-service-user --dry-run   # the plan
+sudo /opt/danbyte-outpost/danbyte-outpost migrate-service-user
+```
+
+It checks first and changes nothing when a check fails: the unit and its
+program, that the program it runs from can be changed by root alone, drop-ins
+that set the user, and that `net.ipv4.ping_group_range` covers the new group
+(`--ignore-icmp` to go ahead anyway). Then it creates the user, saves the old
+unit as `/etc/danbyte-outpost/danbyte-outpost.service.root-backup`, rewrites
+only the `[Service]` section (`User=`, `Group=`, an empty capability set and
+hardening; your other lines stay), gives the binary's directory to the user,
+restarts the service and watches it for 20 s (`--settle`). If it does not
+stay up as the user, the old unit and ownership come back and the service is
+restarted as before. A second run does nothing. Re-running the installer from
+Danbyte does the same for a whole install.
+
+After the move, do not run the binary in `/opt/danbyte-outpost` with sudo:
+the service user can write it. To go back by hand:
+
+```bash
+sudo cp /etc/danbyte-outpost/danbyte-outpost.service.root-backup \
+        /etc/systemd/system/danbyte-outpost.service
+sudo chown root:root /opt/danbyte-outpost /opt/danbyte-outpost/danbyte-outpost
+sudo systemctl daemon-reload && sudo systemctl restart danbyte-outpost
+```
+
+ICMP needs no capability, but the kernel only opens ICMP datagram sockets for
+the groups in `net.ipv4.ping_group_range`. systemd sets it to
+`0 2147483647` on most distributions; if yours does not, the agent logs it
+and ICMP checks report unknown.
+
+**SSH transport.** Danbyte runs `danbyte-outpost once` as the SSH user you
+give the engine. Use an ordinary account: nothing in `once` needs root. A run
+as root warns on stderr and reports `runtime.root` beside the results.
+
+**Containers.** There is no official image. If you build one, run the agent
+as a non-root user; it needs no `--cap-add`. Docker already sets
+`net.ipv4.ping_group_range` to `0 2147483647`; podman does not, so pass
+`--sysctl net.ipv4.ping_group_range="0 2147483647"` (rootless podman: a
+range inside the mapped gids, such as `0 65535`).
