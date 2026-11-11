@@ -1,19 +1,47 @@
 # Danbyte Outpost — systemd unit (HTTPS pull transport).
 # The Danbyte-generated installer writes this for you; included here for
-# reference / manual installs. Adjust ExecStart's path to your venv.
+# reference / manual installs. Create the user first:
+#   useradd --system --user-group --no-create-home --home-dir /nonexistent \
+#           --shell /usr/sbin/nologin danbyte-outpost
+# The agent needs no privilege: ICMP uses unprivileged datagram sockets
+# (net.ipv4.ping_group_range must cover the user's group), it binds no port,
+# and nmap runs with --unprivileged. For self-update the single-file binary's
+# directory belongs to the service user; root must never run that binary.
 [Unit]
 Description=Danbyte Outpost
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Prefer an EnvironmentFile so the token isn't in the unit:
-#   /etc/danbyte-outpost.env  ->  OUTPOST_URL=https://danbyte  OUTPOST_TOKEN=…
-EnvironmentFile=-/etc/danbyte-outpost.env
-ExecStart=/opt/danbyte-outpost/venv/bin/danbyte-outpost run
+# Root-owned 0600; systemd reads it before dropping privileges:
+#   /etc/danbyte-outpost/env  ->  OUTPOST_URL=https://danbyte  OUTPOST_TOKEN=…
+EnvironmentFile=/etc/danbyte-outpost/env
+ExecStart=/opt/danbyte-outpost/danbyte-outpost run
 Restart=always
 RestartSec=10
-DynamicUser=yes
+# Runs as an unprivileged user (danbyte-outpost migrate-service-user).
+User=danbyte-outpost
+Group=danbyte-outpost
+ReadWritePaths=/opt/danbyte-outpost
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

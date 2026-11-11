@@ -29,9 +29,10 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import math
-import os
 
 from danbyte_checks import inventory, netguard, nmap, service_scan
+
+from . import privilege
 
 #: The work kinds this agent runs; advertised in hello.
 KINDS = ("inventory", "service_scan")
@@ -54,14 +55,14 @@ def _clamp(value, lo, hi, default):
 
 
 def is_root() -> bool:
-    return hasattr(os, "geteuid") and os.geteuid() == 0
+    return privilege.is_root()
 
 
 def detect_nmap(configured: str = "") -> tuple[str, str, str]:
     """``(path, version, why_not)``: the nmap this agent may run, the same
     lookup the core uses (``nmap.locate`` / ``nmap.version``)."""
     if is_root():
-        return "", "", "the agent runs as root"
+        return "", "", "the agent runs as root (run migrate-service-user)"
     path = nmap.locate(configured)
     if not path:
         return "", "", "not found"

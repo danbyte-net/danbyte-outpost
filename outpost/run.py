@@ -1,8 +1,5 @@
-"""Outpost entry point.
-
-Phase 0 skeleton: validates config and prints where it would connect. The poll
-loop (hello → work → run checkers → results) lands in Phase 1.
-"""
+"""Outpost entry point: ``run`` (the poll loop), ``check`` and ``once`` (the
+SSH transport)."""
 from __future__ import annotations
 
 import argparse
@@ -73,8 +70,13 @@ async def _once() -> int:
     JSON to stdout. stdout must stay clean (JSON only) — Danbyte parses it."""
     import json
 
+    from . import privilege
     from .checks import attach_ptrs, run_check
 
+    privilege.clear_ambient_capabilities()
+    if privilege.is_root():
+        # stderr: stdout carries the results only.
+        print(privilege.root_warning(), file=sys.stderr)
     raw = sys.stdin.read()
     try:
         payload = json.loads(raw or "{}")
@@ -86,7 +88,8 @@ async def _once() -> int:
         list(await asyncio.gather(*(run_check(c) for c in work))) if work else []
     )
     results = await attach_ptrs(results, work, payload.get("dns") or {})
-    print(json.dumps({"results": results}))
+    # runtime: how the agent runs; a core that predates it reads results only.
+    print(json.dumps({"results": results, "runtime": privilege.runtime()}))
     return 0
 
 
@@ -143,14 +146,23 @@ async def _loop(cfg: Config) -> None:
     SNMP discovery runs on its own (slower) cadence alongside the checks."""
     import time
 
-    from . import discovery
+    from . import discovery, privilege
     from .checks import attach_ptrs, run_check
     from .client import OutpostClient
     from .fast import FastRunner
 
+    # Nothing the agent starts (nmap) inherits a capability the unit granted.
+    privilege.clear_ambient_capabilities()
+    if privilege.is_root():
+        print(privilege.root_warning(), file=sys.stderr)
+    icmp = privilege.icmp_warning()
+    if icmp:
+        print(icmp, file=sys.stderr)
     # What hello advertises: discovery kinds, and nmap when one may run here
-    # (looked up once at start; a restart picks up a newly installed one).
+    # (looked up once at start; a restart picks up a newly installed one),
+    # and whether the agent runs as root.
     caps = await asyncio.to_thread(discovery.capabilities, cfg.nmap_binary)
+    caps["runtime"] = privilege.runtime()
     client = OutpostClient(cfg, caps)
     discovery_task = None
     poll = cfg.poll_seconds
