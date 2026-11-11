@@ -1,5 +1,6 @@
-"""Outpost entry point: ``run`` (the poll loop), ``check`` and ``once`` (the
-SSH transport)."""
+"""Outpost entry point: ``run`` (the poll loop), ``check``, ``once`` (the SSH
+transport) and ``migrate-service-user`` (moves a root-run service to an
+unprivileged user; run by an administrator with sudo)."""
 from __future__ import annotations
 
 import argparse
@@ -15,15 +16,27 @@ def _parse(argv: list[str]) -> tuple[str, dict]:
     ``danbyte-outpost run --url=… --token=…`` (flags override the environment)."""
     p = argparse.ArgumentParser(prog="danbyte-outpost", add_help=True)
     p.add_argument(
-        "command", nargs="?", default="run", choices=["run", "check", "once"]
+        "command", nargs="?", default="run",
+        choices=["run", "check", "once", "migrate-service-user"],
     )
     p.add_argument("--url")
     p.add_argument("--token")
     p.add_argument("--poll", type=int)
     p.add_argument("--insecure", action="store_true", help="skip TLS verify (lab)")
     p.add_argument("--nmap", help="absolute path of an nmap discovery may run")
+    m = p.add_argument_group("migrate-service-user")
+    m.add_argument("--dry-run", action="store_true", help="print the plan, change nothing")
+    m.add_argument("--user", default="", help="service user (default danbyte-outpost)")
+    m.add_argument("--unit", default="", help="unit (default danbyte-outpost.service)")
+    m.add_argument("--ignore-icmp", action="store_true",
+                   help="migrate although ping_group_range leaves ICMP off")
+    m.add_argument("--settle", type=int, default=0,
+                   help="seconds to watch the restarted service (default 20)")
     ns = p.parse_args(argv)
     overrides: dict = {}
+    if ns.command == "migrate-service-user":
+        return ns.command, {"dry_run": ns.dry_run, "user": ns.user, "unit": ns.unit,
+                            "ignore_icmp": ns.ignore_icmp, "settle": ns.settle}
     if ns.url:
         overrides["url"] = ns.url
     if ns.token:
@@ -45,6 +58,14 @@ def main(argv: list[str] | None = None) -> int:
     # and reads results JSON on stdout — no URL/token needed (Danbyte drove in).
     if cmd == "once":
         return asyncio.run(_once())
+    if cmd == "migrate-service-user":
+        from . import service_user
+
+        return service_user.main(
+            user=overrides["user"] or service_user.privilege.SERVICE_USER,
+            unit=overrides["unit"] or service_user.DEFAULT_UNIT,
+            dry_run=overrides["dry_run"], ignore_icmp=overrides["ignore_icmp"],
+            settle=overrides["settle"] or service_user.SETTLE_SECONDS)
 
     try:
         cfg = load(overrides)
