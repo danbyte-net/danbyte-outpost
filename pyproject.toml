@@ -32,3 +32,8 @@ build-backend = "setuptools.build_meta"
 # which is the SAME code the Danbyte core runs. Keep it synced — see
 # scripts/sync-checks.sh and docs/COMPATIBILITY.md.
 packages = ["outpost", "danbyte_checks"]
+
+[tool.setuptools.package-data]
+# The service scan's fingerprint data (converted Recog, BSD-2-Clause) and its
+# notice travel with the vendored check engine.
+danbyte_checks = ["data/recog.json", "data/RECOG-NOTICE"]

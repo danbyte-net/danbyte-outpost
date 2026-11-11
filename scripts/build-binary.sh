@@ -11,7 +11,9 @@ python -m pip install --quiet --upgrade pip pyinstaller
 python -m pip install --quiet .
 
 # pysnmp / pyasn1 / asyncssh load submodules dynamically, so collect them whole.
+# danbyte_checks/data holds the service scan's fingerprints, read at run time.
 pyinstaller --onefile --clean --noconfirm --name danbyte-outpost \
+  --collect-data danbyte_checks \
   --collect-all pysnmp \
   --collect-all pyasn1 \
   --collect-submodules asyncssh \

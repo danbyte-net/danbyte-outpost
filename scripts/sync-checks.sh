@@ -12,13 +12,16 @@ DST="$HERE/danbyte_checks"
 
 [ -d "$SRC" ] || { echo "sync-checks: no danbyte_checks/ under '$MONO'" >&2; exit 1; }
 
-# Compare + copy only the checker modules (not the monorepo's own pyproject).
+# Compare + copy the checker modules (not the monorepo's own pyproject) and
+# the data files they read (the service scan's fingerprints and its notice).
 changed=0
-for f in "$SRC"/*.py; do
-  base="$(basename "$f")"
-  if ! diff -q "$f" "$DST/$base" >/dev/null 2>&1; then
-    echo "  ~ $base"
-    cp "$f" "$DST/$base"
+for f in "$SRC"/*.py "$SRC"/data/*; do
+  [ -f "$f" ] || continue
+  rel="${f#"$SRC"/}"
+  if ! diff -q "$f" "$DST/$rel" >/dev/null 2>&1; then
+    echo "  ~ $rel"
+    mkdir -p "$(dirname "$DST/$rel")"
+    cp "$f" "$DST/$rel"
     changed=1
   fi
 done
