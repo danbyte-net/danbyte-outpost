@@ -22,3 +22,4 @@ pyinstaller --onefile --clean --noconfirm --name danbyte-outpost \
 
 echo "Built: dist/danbyte-outpost"
 "$HERE/dist/danbyte-outpost" --help >/dev/null && echo "smoke test: --help OK"
+"$HERE/dist/danbyte-outpost" self-check

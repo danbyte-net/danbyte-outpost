@@ -1,6 +1,8 @@
 """Outpost entry point: ``run`` (the poll loop), ``check``, ``once`` (the SSH
-transport) and ``migrate-service-user`` (moves a root-run service to an
-unprivileged user; run by an administrator with sudo)."""
+transport), ``migrate-service-user`` (moves a root-run service to an
+unprivileged user; run by an administrator with sudo) and ``self-check``
+(loads every library the agent uses, so a binary that can't run on this
+host says so at once)."""
 from __future__ import annotations
 
 import argparse
@@ -17,7 +19,7 @@ def _parse(argv: list[str]) -> tuple[str, dict]:
     p = argparse.ArgumentParser(prog="danbyte-outpost", add_help=True)
     p.add_argument(
         "command", nargs="?", default="run",
-        choices=["run", "check", "once", "migrate-service-user"],
+        choices=["run", "check", "once", "migrate-service-user", "self-check"],
     )
     p.add_argument("--url")
     p.add_argument("--token")
@@ -58,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     # and reads results JSON on stdout — no URL/token needed (Danbyte drove in).
     if cmd == "once":
         return asyncio.run(_once())
+    if cmd == "self-check":
+        return _self_check()
     if cmd == "migrate-service-user":
         from . import service_user
 
@@ -301,6 +305,35 @@ async def _maybe_update(client, info: dict) -> None:
     target = info.get("update_to")
     if target and can_self_update():
         await self_update(client, target)
+
+#: Modules the agent imports only when a job needs them. A binary built
+#: against a newer C library than the host's fails on the first of these,
+#: in the middle of a job; ``self-check`` imports them all up front.
+_LAZY_MODULES = (
+    "asyncssh",
+    "cryptography.hazmat.bindings._rust",
+    "pysnmp.hlapi.v3arch.asyncio",
+    "icmplib",
+    "danbyte_checks.inventory",
+)
+
+
+def _self_check() -> int:
+    import importlib
+    import platform
+
+    failed = 0
+    libc = " ".join(platform.libc_ver()) or "unknown"
+    print(f"danbyte-outpost {__version__}, C library {libc}")
+    for name in _LAZY_MODULES:
+        try:
+            importlib.import_module(name)
+        except Exception as exc:  # noqa: BLE001 - every failure is reported
+            failed += 1
+            print(f"  {name}: FAILED: {exc}")
+        else:
+            print(f"  {name}: ok")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

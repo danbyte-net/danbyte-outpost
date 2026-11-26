@@ -32,6 +32,11 @@ unprivileged datagram sockets, the agent binds no port, and nmap runs with
 `--unprivileged`. The binary's directory belongs to that user so the agent
 can update itself; root never runs it. See [Service user](#service-user).
 
+The binary runs on x86_64 Linux with glibc 2.35 or newer: Debian 12 and 13,
+Ubuntu 22.04 and newer, and other distributions of that age. Each release is
+started on those systems before it is published. On anything older, install
+from source.
+
 Or install from source:
 
 ```bash
@@ -46,6 +51,7 @@ danbyte-outpost run    --url=… --token=…   # the poll loop (HTTPS pull trans
 danbyte-outpost check  --url=… --token=…   # one-shot: verify the token + assignment
 danbyte-outpost once                       # SSH transport: work JSON on stdin → results on stdout
 sudo danbyte-outpost migrate-service-user  # move a root-run service to the service user
+danbyte-outpost self-check                 # load every library: does this binary run here?
 ```
 
 Config comes from flags or the environment (`OUTPOST_URL`, `OUTPOST_TOKEN`,

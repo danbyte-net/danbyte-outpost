@@ -3,6 +3,12 @@ name: Build binary
 # Build a single-file Linux binary and attach it to the GitHub release on a tag
 # (v*). Users then upload it to their Danbyte instance's package store, or the
 # instance references it — the version-pinned installer serves it to hosts.
+#
+# The binary carries the Python it was built with, and that Python needs the
+# C library (glibc) of the system it was built on, or newer. So it is built
+# on the oldest supported Ubuntu, never `ubuntu-latest`: a build on a newer
+# runner image needed glibc 2.42 and would not start on Debian 13 (#1).
+# Ubuntu 22.04 gives glibc 2.35: Debian 12+, Ubuntu 22.04+ and their kin.
 on:
   push:
     tags: ["v*"]
@@ -13,7 +19,7 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,8 +32,44 @@ jobs:
         with:
           name: danbyte-outpost-linux-x86_64
           path: dist/danbyte-outpost
+
+  # Start the binary on every distribution it supports. `self-check` loads
+  # every library the agent uses (asyncssh, cryptography, pysnmp, …), so a
+  # C-library mismatch fails here, not on someone's host.
+  smoke-test:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:12
+          - debian:13
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - ubuntu:26.04
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: danbyte-outpost-linux-x86_64
+      - name: self-check
+        run: |
+          chmod +x danbyte-outpost
+          ./danbyte-outpost --help >/dev/null
+          ./danbyte-outpost self-check
+
+  # Only a binary that started everywhere is attached to the release.
+  release:
+    needs: smoke-test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: danbyte-outpost-linux-x86_64
+          path: dist
       - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/danbyte-outpost
